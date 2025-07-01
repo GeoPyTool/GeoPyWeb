@@ -198,8 +198,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Issues**: [GitHub Issues](https://github.com/GeoPyTool/GeoPyWeb/issues)
-- **Documentation**: [Wiki](https://github.com/GeoPyTool/GeoPyWeb/wiki)
-- **Community**: [Discussions](https://github.com/GeoPyTool/GeoPyWeb/discussions)
 
 ---
 
