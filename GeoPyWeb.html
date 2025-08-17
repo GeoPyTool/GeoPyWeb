@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoPyTool 地球化学分析工具</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh; padding: 20px; color: #333;
+        }
+        .container { 
+            max-width: 1200px; margin: 0 auto; 
+            background: rgba(255,255,255,0.95); 
+            border-radius: 15px; padding: 30px; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            text-align: center; color: #4a5568; margin-bottom: 30px; 
+            font-size: 2.5em; text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        .section { 
+            margin-bottom: 25px; background: #f8f9fa; 
+            padding: 20px; border-radius: 10px; border-left: 4px solid #4facfe;
+        }
+        .section h3 { color: #2d3748; margin-bottom: 15px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; color: #4a5568; }
+        input[type="file"], select { 
+            width: 100%; padding: 10px; border: 2px solid #e2e8f0; 
+            border-radius: 8px; font-size: 14px; transition: border-color 0.3s;
+        }
+        input[type="file"]:focus, select:focus { 
+            outline: none; border-color: #4facfe; 
+        }
+        button { 
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+            color: white; border: none; padding: 12px 25px; 
+            border-radius: 8px; cursor: pointer; font-size: 14px; 
+            font-weight: 500; transition: all 0.3s;
+        }
+        button:hover { 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+        }
+        button:disabled { 
+            background: #cbd5e0; cursor: not-allowed; transform: none; 
+        }
+        .plot-container { 
+            margin-top: 20px; background: white; 
+            padding: 20px; border-radius: 10px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .data-preview { 
+            max-height: 300px; overflow: auto; 
+            border: 1px solid #e2e8f0; border-radius: 8px; 
+            margin-top: 15px; background: white;
+        }
+        table { 
+            width: 100%; border-collapse: collapse; font-size: 12px; 
+        }
+        th, td { 
+            padding: 8px; text-align: left; 
+            border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+        }
+        th { 
+            background: #f7fafc; font-weight: 600; 
+            position: sticky; top: 0; z-index: 10;
+        }
+        .options { display: none; }
+        .alert { 
+            padding: 15px; margin: 10px 0; border-radius: 8px; 
+            font-weight: 500; border-left: 4px solid;
+        }
+        .alert-success { 
+            background: #f0fff4; color: #22543d; border-color: #38a169; 
+        }
+        .alert-error { 
+            background: #fed7d7; color: #742a2a; border-color: #e53e3e; 
+        }
+        .grid-container { 
+            display: grid; grid-template-columns: 1fr 1fr; 
+            gap: 20px; align-items: start;
+        }
+        @media (max-width: 768px) { 
+            .grid-container { grid-template-columns: 1fr; }
+            .container { padding: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌍 GeoPyTool 地球化学分析工具</h1>
+        
+        <div class="grid-container">
+            <div class="section">
+                <h3>📊 数据上传</h3>
+                <div class="form-group">
+                    <label for="dataFile">选择数据文件 (CSV/Excel):</label>
+                    <input type="file" id="dataFile" accept=".csv,.xlsx,.xls">
+                </div>
+                <button onclick="loadData()">上传数据</button>
+                <div id="dataPreview" class="data-preview" style="display:none;"></div>
+            </div>
+
+            <div class="section">
+                <h3>📈 图表生成</h3>
+                <div class="form-group">
+                    <label for="plotType">图表类型:</label>
+                    <select id="plotType" onchange="showOptions()">
+                        <option value="">请选择图表类型</option>
+                        <option value="tas">TAS 火山岩分类图</option>
+                        <option value="harker">Harker 变异图</option>
+                        <option value="ree">REE 稀土元素标准化图</option>
+                        <option value="trace">Trace 微量元素标准化图</option>
+                        <option value="pearce">Pearce 花岗岩判别图</option>
+                    </select>
+                </div>
+
+                <div id="reeOptions" class="options">
+                    <div class="form-group">
+                        <label for="reeStandard">REE 标准化标准:</label>
+                        <select id="reeStandard">
+                            <option value="C1 Chondrite Sun and McDonough,1989">C1 球粒陨石 (Sun & McDonough, 1989)</option>
+                            <option value="Chondrite Taylor and McLennan,1985">球粒陨石 (Taylor & McLennan, 1985)</option>
+                            <option value="Chondrite Haskin et al.,1966">球粒陨石 (Haskin et al., 1966)</option>
+                            <option value="Chondrite Nakamura,1977">球粒陨石 (Nakamura, 1977)</option>
+                            <option value="MORB Sun and McDonough,1989">MORB (Sun & McDonough, 1989)</option>
+                            <option value="UCC_Rudnick & Gao2003">上地壳 (Rudnick & Gao, 2003)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="traceOptions" class="options">
+                    <div class="form-group">
+                        <label for="traceStandard">Trace 标准化标准:</label>
+                        <select id="traceStandard">
+                            <option value="PM">原始地幔 (PM)</option>
+                            <option value="OIB">洋岛玄武岩 (OIB)</option>
+                            <option value="EMORB">富集型洋中脊玄武岩 (EMORB)</option>
+                            <option value="C1">C1 球粒陨石</option>
+                            <option value="NMORB">正常型洋中脊玄武岩 (NMORB)</option>
+                            <option value="UCC_Rudnick & Gao2003">上地壳 (Rudnick & Gao, 2003)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="elementSet">元素序列:</label>
+                        <select id="elementSet">
+                            <option value="cs_lu">Cs-Lu (36 元素)</option>
+                            <option value="rb_lu">Rb-Lu (26 元素)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button onclick="generatePlot()" id="plotBtn" disabled>生成图表</button>
+            </div>
+        </div>
+
+        <div id="plotContainer" class="plot-container" style="display:none;">
+            <div id="plotDiv" style="height: 600px;"></div>
+            <button onclick="downloadPlot()" style="margin-top: 15px;">📥 下载图表</button>
+        </div>
+    </div>
+
+    <script>
+        let globalData = null;
+        let currentPlot = null;
+
+        // 标准化数据
+        const standards = {
+            ree: {
+                'C1 Chondrite Sun and McDonough,1989': {
+                    'La': 0.237, 'Ce': 0.612, 'Pr': 0.095, 'Nd': 0.467, 'Sm': 0.153,
+                    'Eu': 0.058, 'Gd': 0.2055, 'Tb': 0.0374, 'Dy': 0.254, 'Ho': 0.0566,
+                    'Er': 0.1655, 'Tm': 0.0255, 'Yb': 0.17, 'Lu': 0.0254
+                },
+                'Chondrite Taylor and McLennan,1985': {
+                    'La': 0.367, 'Ce': 0.957, 'Pr': 0.137, 'Nd': 0.711, 'Sm': 0.231,
+                    'Eu': 0.087, 'Gd': 0.306, 'Tb': 0.058, 'Dy': 0.381, 'Ho': 0.0851,
+                    'Er': 0.249, 'Tm': 0.0356, 'Yb': 0.248, 'Lu': 0.0381
+                },
+                'Chondrite Haskin et al.,1966': {
+                    'La': 0.32, 'Ce': 0.787, 'Pr': 0.112, 'Nd': 0.58, 'Sm': 0.185, 'Eu': 0.071,
+                    'Gd': 0.256, 'Tb': 0.05, 'Dy': 0.343, 'Ho': 0.07, 'Er': 0.225, 'Tm': 0.03,
+                    'Yb': 0.186, 'Lu': 0.034
+                },
+                'Chondrite Nakamura,1977': {
+                    'La': 0.33, 'Ce': 0.865, 'Pr': 0.112, 'Nd': 0.63, 'Sm': 0.203, 'Eu': 0.077,
+                    'Gd': 0.276, 'Tb': 0.047, 'Dy': 0.343, 'Ho': 0.07, 'Er': 0.225, 'Tm': 0.03,
+                    'Yb': 0.22, 'Lu': 0.034
+                },
+                'MORB Sun and McDonough,1989': {
+                    'La': 2.5, 'Ce': 7.5, 'Pr': 1.32, 'Nd': 7.3, 'Sm': 2.63, 'Eu': 1.02, 'Gd': 3.68,
+                    'Tb': 0.67, 'Dy': 4.55, 'Ho': 1.052, 'Er': 2.97, 'Tm': 0.46, 'Yb': 3.05, 'Lu': 0.46
+                },
+                'UCC_Rudnick & Gao2003': {
+                    'La': 31, 'Ce': 63, 'Pr': 7.1, 'Nd': 27, 'Sm': 4.7, 'Eu': 1, 'Gd': 4, 'Tb': 0.7,
+                    'Dy': 3.9, 'Ho': 0.83, 'Er': 2.3, 'Tm': 0.3, 'Yb': 1.96, 'Lu': 0.31
+                }
+            },
+            trace: {
+                'PM': {
+                    'Cs': 0.032, 'Tl': 0.005, 'Rb': 0.635, 'Ba': 6.989, 'W': 0.02, 'Th': 0.085, 'U': 0.021, 'Nb': 0.713,
+                    'Ta': 0.041, 'K': 250, 'La': 0.687, 'Ce': 1.775, 'Pb': 0.185, 'Pr': 0.276, 'Mo': 0.063, 'Sr': 21.1,
+                    'P': 95, 'Nd': 1.354, 'F': 26, 'Sm': 0.444, 'Zr': 11.2, 'Hf': 0.309, 'Eu': 0.168, 'Sn': 0.17,
+                    'Sb': 0.005, 'Ti': 1300, 'Gd': 0.596, 'Tb': 0.108, 'Dy': 0.736, 'Li': 1.6, 'Y': 4.55, 'Ho': 0.164,
+                    'Er': 0.48, 'Tm': 0.074, 'Yb': 0.493, 'Lu': 0.074
+                },
+                'OIB': {
+                    'Cs': 0.387, 'Tl': 0.077, 'Rb': 31, 'Ba': 350, 'W': 0.56, 'Th': 4, 'U': 1.02, 'Nb': 48, 'Ta': 2.7,
+                    'K': 12000, 'La': 36, 'Ce': 80, 'Pb': 3.2, 'Pr': 9.7, 'Mo': 2.4, 'Sr': 660, 'P': 2700, 'Nd': 38.5,
+                    'F': 1150, 'Sm': 10, 'Zr': 280, 'Hf': 7.8, 'Eu': 3, 'Sn': 2.7, 'Sb': 0.03, 'Ti': 17200, 'Gd': 7.62,
+                    'Tb': 1.05, 'Dy': 5.6, 'Li': 5.6, 'Y': 29, 'Ho': 1.06, 'Er': 2.62, 'Tm': 0.35, 'Yb': 2.16, 'Lu': 0.3
+                },
+                'EMORB': {
+                    'Cs': 0.063, 'Tl': 0.013, 'Rb': 5.04, 'Ba': 57, 'W': 0.092, 'Th': 0.6, 'U': 0.18, 'Nb': 8.3,
+                    'Ta': 0.47, 'K': 2100, 'La': 6.3, 'Ce': 15, 'Pb': 0.6, 'Pr': 2.05, 'Mo': 0.47, 'Sr': 155, 'P': 620,
+                    'Nd': 9, 'F': 250, 'Sm': 2.6, 'Zr': 73, 'Hf': 2.03, 'Eu': 0.91, 'Sn': 0.8, 'Sb': 0.01, 'Ti': 6000,
+                    'Gd': 2.97, 'Tb': 0.53, 'Dy': 3.55, 'Li': 3.5, 'Y': 22, 'Ho': 0.79, 'Er': 2.31, 'Tm': 0.356,
+                    'Yb': 2.36, 'Lu': 0.354
+                },
+                'C1': {
+                    'Cs': 0.188, 'Tl': 0.14, 'Rb': 2.32, 'Ba': 2.41, 'W': 0.095, 'Th': 0.029, 'U': 0.008, 'Nb': 0.246,
+                    'Ta': 0.014, 'K': 545, 'La': 0.236, 'Ce': 0.612, 'Pb': 2.47, 'Pr': 0.095, 'Mo': 0.92, 'Sr': 7.26,
+                    'P': 1220, 'Nd': 0.467, 'F': 60.7, 'Sm': 0.153, 'Zr': 3.87, 'Hf': 0.1066, 'Eu': 0.058, 'Sn': 1.72,
+                    'Sb': 0.16, 'Ti': 445, 'Gd': 0.2055, 'Tb': 0.0364, 'Dy': 0.254, 'Li': 1.57, 'Y': 1.57, 'Ho': 0.0566,
+                    'Er': 0.1655, 'Tm': 0.0255, 'Yb': 0.17, 'Lu': 0.0254
+                },
+                'NMORB': {
+                    'Cs': 0.007, 'Tl': 0.0014, 'Rb': 0.56, 'Ba': 6.3, 'W': 0.01, 'Th': 0.12, 'U': 0.047, 'Nb': 2.33,
+                    'Ta': 0.132, 'K': 600, 'La': 2.5, 'Ce': 7.5, 'Pb': 0.3, 'Pr': 1.32, 'Mo': 0.31, 'Sr': 90, 'P': 510,
+                    'Nd': 7.3, 'F': 210, 'Sm': 2.63, 'Zr': 74, 'Hf': 2.05, 'Eu': 1.02, 'Sn': 1.1, 'Sb': 0.01, 'Ti': 7600,
+                    'Gd': 3.68, 'Tb': 0.67, 'Dy': 4.55, 'Li': 4.3, 'Y': 28, 'Ho': 1.01, 'Er': 2.97, 'Tm': 0.456,
+                    'Yb': 3.05, 'Lu': 0.455
+                },
+                'UCC_Rudnick & Gao2003': {
+                    'K': 23244.13676, 'Ti': 3835.794545, 'P': 654.6310022, 'Li': 24, 'Be': 2.1, 'B': 17, 'N': 83, 'F': 557, 'S': 62, 'Cl': 360, 'Sc': 14, 'V': 97, 'Cr': 92,
+                    'Co': 17.3, 'Ni': 47, 'Cu': 28, 'Zn': 67, 'Ga': 17.5, 'Ge': 1.4, 'As': 4.8, 'Se': 0.09,
+                    'Br': 1.6, 'Rb': 84, 'Sr': 320, 'Y': 21, 'Zr': 193, 'Nb': 12, 'Mo': 1.1, 'Ru': 0.34,
+                    'Pd': 0.52, 'Ag': 53, 'Cd': 0.09, 'In': 0.056, 'Sn': 2.1, 'Sb': 0.4, 'I': 1.4, 'Cs': 4.9,
+                    'Ba': 628, 'La': 31, 'Ce': 63, 'Pr': 7.1, 'Nd': 27, 'Sm': 4.7, 'Eu': 1, 'Gd': 4, 'Tb': 0.7,
+                    'Dy': 3.9, 'Ho': 0.83, 'Er': 2.3, 'Tm': 0.3, 'Yb': 1.96, 'Lu': 0.31, 'Hf': 5.3, 'Ta': 0.9,
+                    'W': 1.9, 'Re': 0.198, 'Os': 0.031, 'Ir': 0.022, 'Pt': 0.5, 'Au': 1.5, 'Hg': 0.05, 'Tl': 0.9,
+                    'Pb': 17, 'Bi': 0.16, 'Th': 10.5, 'U': 2.7
+                }
+            }
+        };
+
+        const elementSets = {
+            'cs_lu': ['Cs', 'Tl', 'Rb', 'Ba', 'W', 'Th', 'U', 'Nb', 'Ta', 'K', 'La', 'Ce', 'Pb', 'Pr', 'Mo',
+                     'Sr', 'P', 'Nd', 'F', 'Sm', 'Zr', 'Hf', 'Eu', 'Sn', 'Sb', 'Ti', 'Gd', 'Tb', 'Dy',
+                     'Li', 'Y', 'Ho', 'Er', 'Tm', 'Yb', 'Lu'],
+            'rb_lu': ['Rb', 'Ba', 'Th', 'U', 'Nb', 'Ta', 'K', 'La', 'Ce', 'Pr', 'Sr', 'P', 'Nd',
+                     'Zr', 'Hf', 'Sm', 'Eu', 'Ti', 'Tb', 'Dy', 'Y', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']
+        };
+
+        function showAlert(message, type) {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            document.querySelector('.container').insertBefore(alert, document.querySelector('.container').firstChild);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        function loadData() {
+            const file = document.getElementById('dataFile').files[0];
+            if (!file) {
+                showAlert('请选择一个文件！', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    if (file.name.endsWith('.csv')) {
+                        const csv = Papa.parse(e.target.result, { header: true, skipEmptyLines: true });
+                        globalData = csv.data;
+                    } else {
+                        showAlert('目前只支持 CSV 文件格式', 'error');
+                        return;
+                    }
+                    
+                    if (globalData && globalData.length > 0) {
+                        standardizeColumns();
+                        displayDataPreview();
+                        document.getElementById('plotBtn').disabled = false;
+                        showAlert(`数据加载成功！共 ${globalData.length} 行数据，${Object.keys(globalData[0]).length} 个字段`, 'success');
+                    }
+                } catch (error) {
+                    showAlert('文件读取失败：' + error.message, 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function standardizeColumns() {
+            const columnMapping = {
+                'sio2': 'SiO2', 'tio2': 'TiO2', 'al2o3': 'Al2O3', 'fe2o3': 'Fe2O3', 'feo': 'FeO',
+                'mno': 'MnO', 'mgo': 'MgO', 'cao': 'CaO', 'na2o': 'Na2O', 'k2o': 'K2O', 'p2o5': 'P2O5',
+                'loi': 'LOI', 'total': 'Total', 'la': 'La', 'ce': 'Ce', 'pr': 'Pr', 'nd': 'Nd', 'sm': 'Sm',
+                'eu': 'Eu', 'gd': 'Gd', 'tb': 'Tb', 'dy': 'Dy', 'ho': 'Ho', 'er': 'Er', 'tm': 'Tm',
+                'yb': 'Yb', 'lu': 'Lu', 'rb': 'Rb', 'sr': 'Sr', 'y': 'Y', 'zr': 'Zr', 'nb': 'Nb',
+                'ta': 'Ta', 'cs': 'Cs', 'ba': 'Ba', 'th': 'Th', 'u': 'U', 'pb': 'Pb'
+            };
+
+            globalData = globalData.map(row => {
+                const newRow = {};
+                Object.keys(row).forEach(key => {
+                    const standardKey = columnMapping[key.toLowerCase()] || key;
+                    newRow[standardKey] = row[key];
+                });
+                return newRow;
+            });
+        }
+
+        function displayDataPreview() {
+            const preview = document.getElementById('dataPreview');
+            const columns = Object.keys(globalData[0]);
+            const maxRows = 10;
+
+            let html = '<table><thead><tr>';
+            columns.forEach(col => html += `<th>${col}</th>`);
+            html += '</tr></thead><tbody>';
+
+            globalData.slice(0, maxRows).forEach(row => {
+                html += '<tr>';
+                columns.forEach(col => {
+                    const value = row[col] || '';
+                    html += `<td>${isNaN(value) ? value : parseFloat(value).toFixed(2)}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            if (globalData.length > maxRows) {
+                html += `<p style="text-align: center; margin: 10px; color: #666;">显示前 ${maxRows} 行，共 ${globalData.length} 行数据</p>`;
+            }
+
+            preview.innerHTML = html;
+            preview.style.display = 'block';
+        }
+
+        function showOptions() {
+            const plotType = document.getElementById('plotType').value;
+            ['reeOptions', 'traceOptions'].forEach(id => {
+                document.getElementById(id).style.display = 'none';
+            });
+            
+            if (plotType === 'ree') {
+                document.getElementById('reeOptions').style.display = 'block';
+            } else if (plotType === 'trace') {
+                document.getElementById('traceOptions').style.display = 'block';
+            }
+        }
+
+        function generatePlot() {
+            const plotType = document.getElementById('plotType').value;
+            if (!plotType || !globalData) {
+                showAlert('请选择图表类型并上传数据', 'error');
+                return;
+            }
+
+            try {
+                switch (plotType) {
+                    case 'tas': generateTASPlot(); break;
+                    case 'harker': generateHarkerPlot(); break;
+                    case 'ree': generateREEPlot(); break;
+                    case 'trace': generateTracePlot(); break;
+                    case 'pearce': generatePearcePlot(); break;
+                    default: showAlert('未知的图表类型', 'error');
+                }
+            } catch (error) {
+                showAlert('图表生成失败：' + error.message, 'error');
+            }
+        }
+
+        function generateTASPlot() {
+            const requiredCols = ['SiO2', 'Na2O', 'K2O'];
+            const missingCols = requiredCols.filter(col => !globalData[0].hasOwnProperty(col));
+            if (missingCols.length > 0) {
+                showAlert(`缺少必需的列：${missingCols.join(', ')}`, 'error');
+                return;
+            }
+
+            const x = globalData.map(row => parseFloat(row.SiO2));
+            const y = globalData.map(row => parseFloat(row.Na2O) + parseFloat(row.K2O));
+
+            const trace = {
+                x: x, y: y, mode: 'markers', type: 'scatter',
+                marker: { size: 8, color: 'red', opacity: 0.7 },
+                name: '样品数据'
+            };
+
+            // TAS分类线
+            const tasLines = [
+                // 主要分界线
+                {x: [41, 45, 48.4, 52.5, 57.6, 61.8, 68.4, 76.3, 77.3], y: [0, 0, 0, 0, 0, 0, 0, 0, 19]},
+                {x: [41, 45, 48.4, 52.5, 57.6, 61.8, 68.4, 76.3], y: [3, 5, 7.25, 8.5, 10.75, 13.5, 16.75, 19]},
+                {x: [45, 49.4, 53, 57.6, 61.8, 68.4], y: [2.8, 5, 8.5, 10.75, 13.5, 16.75]},
+                {x: [48.4, 52.5, 57.6, 61.8], y: [11.5, 14, 16.75, 19]},
+                {x: [52.5, 57.6], y: [16.5, 19]}
+            ];
+
+            const layout = {
+                title: 'TAS (Total Alkali-Silica) 分类图',
+                xaxis: { title: 'SiO2 (wt%)', range: [37, 80] },
+                yaxis: { title: 'Na2O + K2O (wt%)', range: [0, 20] },
+                shapes: tasLines.map(line => ({
+                    type: 'line', x0: line.x[0], y0: line.y[0], 
+                    x1: line.x[line.x.length-1], y1: line.y[line.y.length-1],
+                    line: { color: 'black', width: 1 }
+                }))
+            };
+
+            Plotly.newPlot('plotDiv', [trace], layout);
+            document.getElementById('plotContainer').style.display = 'block';
+            showAlert('TAS 图表生成成功！', 'success');
+        }
+
+        function generateHarkerPlot() {
+            const requiredCols = ['SiO2'];
+            const missingCols = requiredCols.filter(col => !globalData[0].hasOwnProperty(col));
+            if (missingCols.length > 0) {
+                showAlert(`缺少必需的列：SiO2`, 'error');
+                return;
+            }
+
+            const oxides = ['TiO2', 'Al2O3', 'Fe2O3', 'MnO', 'MgO', 'CaO', 'Na2O', 'K2O', 'P2O5'];
+            const availableOxides = oxides.filter(ox => globalData[0].hasOwnProperty(ox));
+            
+            if (availableOxides.length === 0) {
+                showAlert('没有找到可用的氧化物数据', 'error');
+                return;
+            }
+
+            const sio2 = globalData.map(row => parseFloat(row.SiO2));
+            const traces = availableOxides.map((oxide, i) => {
+                const values = globalData.map(row => parseFloat(row[oxide]));
+                const colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'];
+                return {
+                    x: sio2, y: values, mode: 'markers', type: 'scatter',
+                    name: oxide, marker: { size: 6, color: colors[i % colors.length] }
+                };
+            });
+
+            const layout = {
+                title: 'Harker 变异图',
+                xaxis: { title: 'SiO2 (wt%)' },
+                yaxis: { title: '氧化物含量 (wt%)' },
+                showlegend: true
+            };
+
+            Plotly.newPlot('plotDiv', traces, layout);
+            document.getElementById('plotContainer').style.display = 'block';
+            showAlert(`Harker 图表生成成功！包含 ${availableOxides.length} 个氧化物`, 'success');
+        }
+
+        function generateREEPlot() {
+            const standard = document.getElementById('reeStandard').value;
+            const reeElements = ['La', 'Ce', 'Pr', 'Nd', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er', 'Tm', 'Yb', 'Lu'];
+            const availableREEs = reeElements.filter(el => globalData[0].hasOwnProperty(el));
+            
+            if (availableREEs.length === 0) {
+                showAlert('没有找到 REE 数据', 'error');
+                return;
+            }
+
+            const normValues = standards.ree[standard];
+            const traces = globalData.map((row, i) => {
+                const x = [], y = [];
+                availableREEs.forEach((el, j) => {
+                    const value = parseFloat(row[el]);
+                    if (!isNaN(value) && value > 0 && normValues[el]) {
+                        x.push(j + 1);
+                        y.push(Math.log10(value / normValues[el]));
+                    }
+                });
+                
+                return {
+                    x: x, y: y, mode: 'lines+markers', type: 'scatter',
+                    name: `样品 ${i + 1}`, 
+                    marker: { size: 6 }, line: { width: 2 }
+                };
+            });
+
+            const layout = {
+                title: `REE 标准化图 (${standard.split(' ')[0]})`,
+                xaxis: { 
+                    title: 'REE 元素', 
+                    tickvals: availableREEs.map((_, i) => i + 1),
+                    ticktext: availableREEs
+                },
+                yaxis: { 
+                    title: `样品/${standard.split(' ')[0]}`,
+                    tickvals: [-2, -1, 0, 1, 2],
+                    ticktext: ['0.01', '0.1', '1', '10', '100']
+                }
+            };
+
+            Plotly.newPlot('plotDiv', traces, layout);
+            document.getElementById('plotContainer').style.display = 'block';
+            showAlert(`REE 图表生成成功！包含 ${availableREEs.length} 个元素`, 'success');
+        }
+
+        function generateTracePlot() {
+            const standard = document.getElementById('traceStandard').value;
+            const elementSet = document.getElementById('elementSet').value;
+            const elements = elementSets[elementSet];
+            const availableElements = elements.filter(el => {
+                return globalData[0].hasOwnProperty(el) || 
+                       (el === 'K' && globalData[0].hasOwnProperty('K2O')) ||
+                       (el === 'Ti' && globalData[0].hasOwnProperty('TiO2'));
+            });
+            
+            if (availableElements.length === 0) {
+                showAlert('没有找到微量元素数据', 'error');
+                return;
+            }
+
+            const normValues = standards.trace[standard];
+            const traces = globalData.map((row, i) => {
+                const x = [], y = [];
+                availableElements.forEach((el, j) => {
+                    let value;
+                    if (row[el]) {
+                        value = parseFloat(row[el]);
+                    } else if (el === 'K' && row['K2O']) {
+                        value = parseFloat(row['K2O']) * (2 * 39.0983 / 94.1956) * 10000;
+                    } else if (el === 'Ti' && row['TiO2']) {
+                        value = parseFloat(row['TiO2']) * (47.867 / 79.865) * 10000;
+                    }
+                    
+                    if (!isNaN(value) && value > 0 && normValues[el]) {
+                        x.push(j + 1);
+                        y.push(Math.log10(value / normValues[el]));
+                    }
+                });
+                
+                return {
+                    x: x, y: y, mode: 'lines+markers', type: 'scatter',
+                    name: `样品 ${i + 1}`,
+                    marker: { size: 6 }, line: { width: 2 }
+                };
+            });
+
+            const layout = {
+                title: `微量元素标准化图 (${standard})`,
+                xaxis: { 
+                    title: '微量元素',
+                    tickvals: availableElements.map((_, i) => i + 1),
+                    ticktext: availableElements,
+                    tickangle: -45
+                },
+                yaxis: { 
+                    title: `样品/${standard}`,
+                    tickvals: [-2, -1, 0, 1, 2],
+                    ticktext: ['0.01', '0.1', '1', '10', '100']
+                }
+            };
+
+            Plotly.newPlot('plotDiv', traces, layout);
+            document.getElementById('plotContainer').style.display = 'block';
+            showAlert(`微量元素图表生成成功！包含 ${availableElements.length} 个元素`, 'success');
+        }
+
+        function generatePearcePlot() {
+            const requiredCols = ['Rb', 'Y', 'Nb', 'Yb', 'Ta'];
+            const missingCols = requiredCols.filter(col => !globalData[0].hasOwnProperty(col));
+            if (missingCols.length > 0) {
+                showAlert(`缺少必需的列：${missingCols.join(', ')}`, 'error');
+                return;
+            }
+
+            // 创建四个子图的数据
+            const subplots = [
+                { x: 'Y+Nb', y: 'Rb' },
+                { x: 'Yb+Ta', y: 'Rb' },
+                { x: 'Y', y: 'Nb' },
+                { x: 'Yb', y: 'Ta' }
+            ];
+
+            const traces = [];
+            subplots.forEach((subplot, plotIdx) => {
+                globalData.forEach((row, i) => {
+                    let xVal, yVal;
+                    
+                    if (subplot.x === 'Y+Nb') {
+                        xVal = parseFloat(row.Y) + parseFloat(row.Nb);
+                    } else if (subplot.x === 'Yb+Ta') {
+                        xVal = parseFloat(row.Yb) + parseFloat(row.Ta);
+                    } else {
+                        xVal = parseFloat(row[subplot.x]);
+                    }
+                    
+                    yVal = parseFloat(row[subplot.y]);
+                    
+                    if (!isNaN(xVal) && !isNaN(yVal) && xVal > 0 && yVal > 0) {
+                        traces.push({
+                            x: [Math.log10(xVal)], 
+                            y: [Math.log10(yVal)],
+                            mode: 'markers',
+                            type: 'scatter',
+                            name: `样品 ${i + 1}`,
+                            xaxis: `x${plotIdx + 1}`,
+                            yaxis: `y${plotIdx + 1}`,
+                            marker: { size: 8, opacity: 0.7 },
+                            showlegend: plotIdx === 0
+                        });
+                    }
+                });
+            });
+
+            const layout = {
+                title: 'Pearce 花岗岩判别图',
+                grid: { rows: 2, columns: 2, pattern: 'independent' },
+                xaxis: { title: 'Y+Nb (ppm)', domain: [0, 0.45] },
+                yaxis: { title: 'Rb (ppm)', domain: [0.55, 1] },
+                xaxis2: { title: 'Yb+Ta (ppm)', domain: [0.55, 1] },
+                yaxis2: { title: 'Rb (ppm)', domain: [0.55, 1] },
+                xaxis3: { title: 'Y (ppm)', domain: [0, 0.45] },
+                yaxis3: { title: 'Nb (ppm)', domain: [0, 0.45] },
+                xaxis4: { title: 'Yb (ppm)', domain: [0.55, 1] },
+                yaxis4: { title: 'Ta (ppm)', domain: [0, 0.45] }
+            };
+
+            Plotly.newPlot('plotDiv', traces, layout);
+            document.getElementById('plotContainer').style.display = 'block';
+            showAlert('Pearce 图表生成成功！', 'success');
+        }
+
+        function downloadPlot() {
+            if (!currentPlot) {
+                showAlert('没有可下载的图表', 'error');
+                return;
+            }
+            
+            Plotly.downloadImage('plotDiv', {
+                format: 'png',
+                width: 1200,
+                height: 800,
+                filename: 'geochemical_plot'
+            });
+            showAlert('图表下载完成！', 'success');
+        }
+    </script>
+</body>
+</html>
