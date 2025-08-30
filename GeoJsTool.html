@@ -314,22 +314,36 @@
 
     <!-- 内嵌 CSV 解析器 -->
     <script>
-        // Simple CSV parser implementation
+        // Simple CSV parser implementation - 增强版本，更好地处理特殊情况
         function parseCSV(text) {
             const lines = text.split('\n');
-            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            if (lines.length === 0) return { data: [], meta: { fields: [] } };
+            
+            // 处理头部，去除BOM和空格
+            let headerLine = lines[0];
+            if (headerLine.charCodeAt(0) === 0xFEFF) {
+                headerLine = headerLine.substr(1); // 去除BOM
+            }
+            
+            const headers = headerLine.split(',').map(h => h.trim().replace(/"/g, ''));
+            console.log('解析到的列头:', headers.length, headers);
+            
             const data = [];
             
             for (let i = 1; i < lines.length; i++) {
-                if (lines[i].trim()) {
-                    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+                const line = lines[i].trim();
+                if (line) {
+                    const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
                     const row = {};
                     headers.forEach((header, j) => {
-                        row[header] = values[j] || '';
+                        // 保证每个列都有值，即使是空字符串
+                        row[header] = values[j] !== undefined ? values[j] : '';
                     });
                     data.push(row);
                 }
             }
+            
+            console.log('解析完成:', data.length, '行数据，每行', Object.keys(data[0] || {}).length, '列');
             return { data, meta: { fields: headers } };
         }
     </script>
@@ -430,21 +444,26 @@
                      'Zr', 'Hf', 'Sm', 'Eu', 'Ti', 'Tb', 'Dy', 'Y', 'Ho', 'Er', 'Tm', 'Yb', 'Lu']
         };
 
-        // 获取分类列 - 优先使用Label，其次Type，最后使用样品编号
+        // 获取分类列 - 优先使用精确的Label列名，其次Type
         function getClassificationColumn() {
             if (!globalData || globalData.length === 0) return null;
             
             const firstRow = globalData[0];
             const columns = Object.keys(firstRow);
             
-            // 优先查找 Label 列（不区分大小写）
+            // 优先查找精确的 Label 列
+            if (columns.includes('Label')) {
+                return 'Label';
+            }
+            
+            // 其次查找 Label 列（不区分大小写）
             for (let col of columns) {
                 if (col.toLowerCase().trim() === 'label') {
                     return col;
                 }
             }
             
-            // 其次查找 Type 列（不区分大小写）
+            // 最后查找 Type 列（不区分大小写）
             for (let col of columns) {
                 if (col.toLowerCase().trim() === 'type') {
                     return col;
@@ -454,15 +473,23 @@
             return null; // 没有找到分类列
         }
         
-        // 获取颜色映射和标签 - 支持数据中的Color列
+        // 获取颜色映射和标签 - 优先使用精确的Color列
         function getColorMapping() {
             if (!globalData || globalData.length === 0) {
                 return { colors: [], labels: [], legendItems: [] };
             }
             
             const classificationCol = getClassificationColumn();
-            const hasColorCol = globalData[0].hasOwnProperty('Color') || globalData[0].hasOwnProperty('color');
-            const colorCol = globalData[0].hasOwnProperty('Color') ? 'Color' : 'color';
+            
+            // 优先查找精确的 Color 列
+            let colorCol = null;
+            const columns = Object.keys(globalData[0]);
+            
+            if (columns.includes('Color')) {
+                colorCol = 'Color';
+            } else if (columns.some(col => col.toLowerCase() === 'color')) {
+                colorCol = columns.find(col => col.toLowerCase() === 'color');
+            }
             
             const defaultColors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', 
                            '#bcbd22', '#17becf', '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5', '#c49c94'];
@@ -473,16 +500,26 @@
                 const colorMap = {};
                 const legendItems = [];
                 
-                if (hasColorCol) {
-                    // 如果有Color列，使用数据中指定的颜色
+                if (colorCol) {
+                    // 如果Color列存在，使用数据中指定的颜色
                     uniqueValues.forEach((value, index) => {
                         // 找到第一个该分类的样本的颜色
                         const sampleWithValue = globalData.find(row => (row[classificationCol] || 'Unknown') === value);
                         let color = sampleWithValue && sampleWithValue[colorCol] ? sampleWithValue[colorCol] : defaultColors[index % defaultColors.length];
                         
-                        // 处理常见颜色名称
+                        // 处理常见颜色名称和格式
                         if (typeof color === 'string') {
-                            color = color.toLowerCase().trim();
+                            color = color.trim();
+                            // 如果是常见颜色名，转换为小写但保持格式
+                            const colorNameMap = {
+                                'red': '#ff0000', 'blue': '#0000ff', 'green': '#008000', 'yellow': '#ffff00',
+                                'orange': '#ffa500', 'purple': '#800080', 'pink': '#ffc0cb', 'brown': '#a52a2a',
+                                'black': '#000000', 'white': '#ffffff', 'gray': '#808080', 'grey': '#808080'
+                            };
+                            const lowerColor = color.toLowerCase();
+                            if (colorNameMap[lowerColor]) {
+                                color = colorNameMap[lowerColor];
+                            }
                         }
                         
                         colorMap[value] = color;
@@ -514,12 +551,21 @@
                 
                 return { colors: sampleColors, labels: sampleLabels, legendItems };
             } else {
-                // 没有分类列，使用样品编号
+                // 没有分类列，按样品编号绘制
                 const sampleColors = globalData.map((row, i) => {
-                    if (hasColorCol && row[colorCol]) {
+                    if (colorCol && row[colorCol]) {
                         let color = row[colorCol];
                         if (typeof color === 'string') {
-                            color = color.toLowerCase().trim();
+                            color = color.trim();
+                            const colorNameMap = {
+                                'red': '#ff0000', 'blue': '#0000ff', 'green': '#008000', 'yellow': '#ffff00',
+                                'orange': '#ffa500', 'purple': '#800080', 'pink': '#ffc0cb', 'brown': '#a52a2a',
+                                'black': '#000000', 'white': '#ffffff', 'gray': '#808080', 'grey': '#808080'
+                            };
+                            const lowerColor = color.toLowerCase();
+                            if (colorNameMap[lowerColor]) {
+                                color = colorNameMap[lowerColor];
+                            }
                         }
                         return color;
                     }
@@ -559,6 +605,11 @@
                     if (file.name.endsWith('.csv')) {
                         const csv = parseCSV(e.target.result);
                         globalData = csv.data;
+                        console.log('CSV解析完成:', {
+                            '原始列数': csv.meta.fields.length,
+                            '原始列名': csv.meta.fields,
+                            '数据行数': globalData.length
+                        });
                     } else {
                         showAlert('目前只支持 CSV 文件格式', 'error');
                         return;
@@ -696,8 +747,16 @@
                 'loi': 'LOI', 'LOI': 'LOI', 'total': 'Total', 'TOTAL': 'Total', 'sum': 'Total'
             };
 
-            // 智能列名识别函数
+            // 智能列名识别函数 - 保护特定可视化控制列不被修改
             function smartColumnMapping(originalCol) {
+                // 保护的可视化控制列，这些列名绝对不能被修改
+                const protectedColumns = ['Label', 'Color', 'Marker', 'Size', 'Width', 'Style', 'Alpha', 'Age(ma)'];
+                
+                // 如果是保护列，直接返回原始列名
+                if (protectedColumns.includes(originalCol)) {
+                    return originalCol;
+                }
+                
                 // 清理列名：去除空格、特殊字符、单位等
                 let cleaned = originalCol.trim().toLowerCase();
                 
@@ -732,40 +791,50 @@
                 return originalCol;
             }
 
-            // 应用智能列名映射
+            // 应用智能列名映射，但保留所有原始列避免重复覆盖
+            const originalColumns = Object.keys(globalData[0]);
+            console.log('原始列数:', originalColumns.length, '列名:', originalColumns);
+            
             globalData = globalData.map(row => {
                 const newRow = {};
-                Object.keys(row).forEach(key => {
-                    const standardKey = smartColumnMapping(key);
-                    newRow[standardKey] = row[key];
+                const usedStandardNames = new Set();
+                
+                Object.keys(row).forEach(originalKey => {
+                    const standardKey = smartColumnMapping(originalKey);
+                    
+                    // 如果标准化名称已经使用过，保留原始名称避免覆盖
+                    if (usedStandardNames.has(standardKey) && standardKey !== originalKey) {
+                        newRow[originalKey] = row[originalKey];
+                    } else {
+                        newRow[standardKey] = row[originalKey];
+                        usedStandardNames.add(standardKey);
+                    }
                 });
                 return newRow;
             });
             
             // 输出映射信息供调试
-            console.log('列名映射完成，标准化后的列名:', Object.keys(globalData[0]));
+            console.log('列名映射完成，处理后列数:', Object.keys(globalData[0]).length, '列名:', Object.keys(globalData[0]));
         }
 
         function displayDataPreview() {
             const preview = document.getElementById('dataPreview');
             const columns = Object.keys(globalData[0]);
             
-            // Display all rows and columns with scrolling
+            // Display all rows and columns with scrolling - 保持原始数据显示
             let html = '<div class="table-wrapper"><table><thead><tr>';
             columns.forEach(col => {
                 html += `<th title="${col}">${col}</th>`;
             });
             html += '</tr></thead><tbody>';
 
-            // Display ALL rows instead of limiting to 10
+            // Display ALL rows instead of limiting to 10 - 显示原始数据值，不做任何修改
             globalData.forEach(row => {
                 html += '<tr>';
                 columns.forEach(col => {
                     const value = row[col] || '';
-                    const displayValue = isNaN(value) ? 
-                        (value.toString().length > 15 ? value.toString().substring(0, 15) + '...' : value) : 
-                        (parseFloat(value).toFixed(3));
-                    html += `<td title="${value}">${displayValue}</td>`;
+                    // 完全按原始数据显示，不做任何格式化或截取
+                    html += `<td title="${value}">${value}</td>`;
                 });
                 html += '</tr>';
             });
@@ -883,7 +952,7 @@
                             line: { color: 'black', width: 0.5 } 
                         },
                         name: colorMapping.labels[i],
-                        showlegend: globalData.length <= 10
+                        showlegend: globalData.length <= 10  // 只有样品数少于等于10时才显示图例
                     });
                 }
             }
@@ -945,7 +1014,7 @@
                     range: [0, 20],
                     tickvals: [0, 5, 10, 15, 20]
                 },
-                showlegend: globalData.length <= 10
+                showlegend: true  // 确保显示图例
             };
 
             // 添加岩石类型标注 - 精确位置来自 TAS.py
@@ -1059,7 +1128,7 @@
                                     opacity: 0.7,
                                     line: { color: 'black', width: 0.5 }
                                 },
-                                showlegend: subplotIndex === 0 && globalData.length <= 10,  // 只在第一个子图显示图例
+                                showlegend: subplotIndex === 0,  // 只在第一个子图显示图例
                                 xaxis: `x${subplotIndex + 1}`,
                                 yaxis: `y${subplotIndex + 1}`
                             });
@@ -1190,7 +1259,7 @@
                             x: x, y: y, mode: 'lines+markers', type: 'scatter',
                             name: groupName,
                             legendgroup: `group_${groupName}`,
-                            showlegend: index === group.samples[0].index, // 只在第一个样品显示图例
+                            showlegend: index === group.samples[0].index, // 只在第一个样品显示图例，按Label分组
                             line: { color: color, width: 1.5 },
                             marker: { color: color, size: 6 }
                         });
@@ -1333,7 +1402,7 @@
                             x: x, y: y, mode: 'lines+markers', type: 'scatter',
                             name: groupName,
                             legendgroup: `group_${groupName}`,
-                            showlegend: index === group.samples[0].index, // 只在第一个样品显示图例
+                            showlegend: index === group.samples[0].index, // 只在第一个样品显示图例，按Label分组
                             line: { color: color, width: 1.5 },
                             marker: { color: color, size: 6 }
                         });
@@ -1612,24 +1681,145 @@
                 });
             });
 
+            // 为每个子图添加外框
+            conditions.forEach((condition, diagram_idx) => {
+                const xlim = condition.xlim;
+                const ylim = condition.ylim;
+                
+                // 创建矩形外框（右上角顺时针绘制）
+                const frameX = [xlim[0], xlim[1], xlim[1], xlim[0], xlim[0]];
+                const frameY = [ylim[0], ylim[0], ylim[1], ylim[1], ylim[0]];
+                
+                traces.push({
+                    x: frameX,
+                    y: frameY,
+                    mode: 'lines',
+                    type: 'scatter',
+                    line: { 
+                        color: 'black', 
+                        width: 1.5 
+                    },
+                    showlegend: false,
+                    hoverinfo: 'skip',
+                    xaxis: `x${diagram_idx + 1}`,
+                    yaxis: `y${diagram_idx + 1}`
+                });
+            });
+
             const layout = {
                 title: 'Pearce Diagrams for Granite Discrimination (Pearce et al., 1984)',
                 width: 1000,
-                height: 800,
+                height: 900,  // 增加高度以适应底部注释
+                margin: { l: 80, r: 50, t: 80, b: 120 },  // 增加底部边距给注释留出空间
                 grid: { rows: 2, columns: 2, pattern: 'independent' },
-                xaxis: { title: conditions[0].xLabel, domain: [0, 0.45], range: conditions[0].xlim },
-                yaxis: { title: conditions[0].yLabel, domain: [0.55, 1], range: conditions[0].ylim },
-                xaxis2: { title: conditions[1].xLabel, domain: [0.55, 1], range: conditions[1].xlim },
-                yaxis2: { title: conditions[1].yLabel, domain: [0.55, 1], range: conditions[1].ylim },
-                xaxis3: { title: conditions[2].xLabel, domain: [0, 0.45], range: conditions[2].xlim },
-                yaxis3: { title: conditions[2].yLabel, domain: [0, 0.45], range: conditions[2].ylim },
-                xaxis4: { title: conditions[3].xLabel, domain: [0.55, 1], range: conditions[3].xlim },
-                yaxis4: { title: conditions[3].yLabel, domain: [0, 0.45], range: conditions[3].ylim },
+                // 第一个子图 (左上)
+                xaxis: { 
+                    title: conditions[0].xLabel, 
+                    domain: [0, 0.45], 
+                    range: conditions[0].xlim,
+                    showline: false,        // 不显示坐标轴线
+                    showticklabels: true,
+                    ticks: '',              // 不显示刻度线
+                    showgrid: false,        // 不显示网格
+                    zeroline: false         // 不显示零线
+                },
+                yaxis: { 
+                    title: conditions[0].yLabel, 
+                    domain: [0.55, 1], 
+                    range: conditions[0].ylim,
+                    showline: false,        // 不显示坐标轴线
+                    showticklabels: true,
+                    ticks: '',              // 不显示刻度线
+                    showgrid: false,        // 不显示网格
+                    zeroline: false         // 不显示零线
+                },
+                // 第二个子图 (右上)
+                xaxis2: { 
+                    title: conditions[1].xLabel, 
+                    domain: [0.55, 1], 
+                    range: conditions[1].xlim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
+                yaxis2: { 
+                    title: conditions[1].yLabel, 
+                    domain: [0.55, 1], 
+                    range: conditions[1].ylim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
+                // 第三个子图 (左下)
+                xaxis3: { 
+                    title: conditions[2].xLabel, 
+                    domain: [0, 0.45], 
+                    range: conditions[2].xlim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
+                yaxis3: { 
+                    title: conditions[2].yLabel, 
+                    domain: [0, 0.45], 
+                    range: conditions[2].ylim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
+                // 第四个子图 (右下)
+                xaxis4: { 
+                    title: conditions[3].xLabel, 
+                    domain: [0.55, 1], 
+                    range: conditions[3].xlim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
+                yaxis4: { 
+                    title: conditions[3].yLabel, 
+                    domain: [0, 0.45], 
+                    range: conditions[3].ylim,
+                    showline: false,
+                    showticklabels: true,
+                    ticks: '',
+                    showgrid: false,
+                    zeroline: false
+                },
                 annotations: [
-                    { x: 0.5, y: 0.02, text: 'syn-COLG: syn-collision granites, VAG: volcanic arc granites\nWPG: within plate granites, ORG: ocean ridge granites',
-                      showarrow: false, xref: 'paper', yref: 'paper', font: { size: 10 } },
-                    { x: 0.02, y: 0.98, text: 'Reference: Pearce, J.A. et al. (1984) J. Petrology, v.25, p.956-983',
-                      showarrow: false, xref: 'paper', yref: 'paper', font: { size: 8 } }
+                    // 将说明文字移到整个可视化区域的最底部，避免与图表和坐标轴重叠
+                    { 
+                        x: 0.5, 
+                        y: -0.12, 
+                        text: 'syn-COLG: syn-collision granites, VAG: volcanic arc granites<br>WPG: within plate granites, ORG: ocean ridge granites',
+                        showarrow: false, 
+                        xref: 'paper', 
+                        yref: 'paper', 
+                        font: { size: 10 },
+                        xanchor: 'center',
+                        yanchor: 'top'
+                    },
+                    { 
+                        x: 0.5, 
+                        y: -0.18, 
+                        text: 'Reference: Pearce, J.A. et al. (1984) J. Petrology, v.25, p.956-983',
+                        showarrow: false, 
+                        xref: 'paper', 
+                        yref: 'paper', 
+                        font: { size: 8 },
+                        xanchor: 'center',
+                        yanchor: 'top'
+                    }
                 ]
             };
 
