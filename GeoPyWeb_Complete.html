@@ -744,7 +744,7 @@
             showAlert('TAS 图表生成成功！', 'success');
         }
 
-        // Harker 图表生成
+        // Harker 图表生成 - 严格按照 run.py 中的实现
         function generateHarkerPlot() {
             const requiredCols = ['SiO2'];
             const missingCols = requiredCols.filter(col => !globalData[0].hasOwnProperty(col));
@@ -753,29 +753,53 @@
                 return;
             }
 
-            const oxides = ['TiO2', 'Al2O3', 'Fe2O3', 'MnO', 'MgO', 'CaO', 'Na2O', 'K2O', 'P2O5'];
+            // 定义与 SiO2 作图的氧化物 - 精确按照 run.py
+            const oxides = ['Al2O3', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'TiO2', 'P2O5', 'MnO'];
             const availableOxides = oxides.filter(ox => globalData[0].hasOwnProperty(ox));
             
             if (availableOxides.length === 0) {
-                showAlert('没有找到可用的氧化物数据', 'error');
+                showAlert('没有找到可用的氧化物数据来与 SiO2 作图', 'error');
                 return;
             }
 
             const sio2 = globalData.map(row => parseFloat(row.SiO2));
-            const traces = availableOxides.map((oxide, i) => {
-                const values = globalData.map(row => parseFloat(row[oxide]));
-                const colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'];
-                return {
-                    x: sio2, y: values, mode: 'markers', type: 'scatter',
-                    name: oxide, marker: { size: 6, color: colors[i % colors.length] }
-                };
+            const traces = [];
+            const colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'];
+            
+            // 为每个氧化物创建迹踪
+            availableOxides.forEach((oxide, i) => {
+                // 为每个样品创建单独的点
+                globalData.forEach((row, j) => {
+                    traces.push({
+                        x: [parseFloat(row.SiO2)], 
+                        y: [parseFloat(row[oxide])],
+                        mode: 'markers', 
+                        type: 'scatter',
+                        name: j === 0 ? oxide : '',  // 只在第一个点显示名称
+                        legendgroup: oxide,  // 组合相同氧化物的点
+                        marker: { 
+                            size: 6, 
+                            color: colors[i % colors.length],
+                            opacity: 0.6,
+                            line: { color: 'black', width: 0.3 }
+                        },
+                        showlegend: j === 0  // 只在第一个点显示图例
+                    });
+                });
             });
 
             const layout = {
-                title: 'Harker 变异图',
+                title: 'Harker Diagrams',
                 xaxis: { title: 'SiO2 (wt%)' },
                 yaxis: { title: '氧化物含量 (wt%)' },
-                showlegend: true
+                showlegend: true,
+                legend: {
+                    x: 1.02,
+                    y: 1,
+                    xanchor: 'left',
+                    yanchor: 'top'
+                },
+                margin: { r: 120 }  // 为图例留出空间
             };
 
             Plotly.newPlot('plotDiv', traces, layout);
