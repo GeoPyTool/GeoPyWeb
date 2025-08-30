@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GeoPyTool 地球化学分析工具 - 完整版</title>
+    <title>GeoJsTool 地球化学分析工具 - 网页版</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -136,7 +136,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>🌍 GeoPyTool 地球化学分析工具 - 完整版</h1>
+        <h1>🌍 GeoJsTool 地球化学分析工具 - 网页版</h1>
         
         <div class="grid-container">
             <div class="section">
@@ -744,7 +744,7 @@
             showAlert('TAS 图表生成成功！', 'success');
         }
 
-        // Harker 图表生成 - 严格按照 run.py 中的实现
+        // Harker 图表生成 - 8个子图，每个氧化物与SiO2单独作图
         function generateHarkerPlot() {
             const requiredCols = ['SiO2'];
             const missingCols = requiredCols.filter(col => !globalData[0].hasOwnProperty(col));
@@ -753,58 +753,91 @@
                 return;
             }
 
-            // 定义与 SiO2 作图的氧化物 - 精确按照 run.py
-            const oxides = ['Al2O3', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'TiO2', 'P2O5', 'MnO'];
+            // 定义与 SiO2 作图的氧化物 - 精确按照 run.py Harker.py
+            const oxides = ['Al2O3', 'Fe2O3', 'MgO', 'CaO', 'Na2O', 'K2O', 'TiO2', 'P2O5'];
             const availableOxides = oxides.filter(ox => globalData[0].hasOwnProperty(ox));
             
             if (availableOxides.length === 0) {
-                showAlert('没有找到可用的氧化物数据来与 SiO2 作图', 'error');
+                showAlert('没有找到可用的氧化物数据来与 SiO2 作图\n需要: Al2O3, Fe2O3, MgO, CaO, Na2O, K2O, TiO2, P2O5', 'error');
                 return;
             }
 
-            const sio2 = globalData.map(row => parseFloat(row.SiO2));
             const traces = [];
-            const colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive'];
+            const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f'];
             
-            // 为每个氧化物创建迹踪
-            availableOxides.forEach((oxide, i) => {
-                // 为每个样品创建单独的点
-                globalData.forEach((row, j) => {
-                    traces.push({
-                        x: [parseFloat(row.SiO2)], 
-                        y: [parseFloat(row[oxide])],
-                        mode: 'markers', 
-                        type: 'scatter',
-                        name: j === 0 ? oxide : '',  // 只在第一个点显示名称
-                        legendgroup: oxide,  // 组合相同氧化物的点
-                        marker: { 
-                            size: 6, 
-                            color: colors[i % colors.length],
-                            opacity: 0.6,
-                            line: { color: 'black', width: 0.3 }
-                        },
-                        showlegend: j === 0  // 只在第一个点显示图例
-                    });
+            // 为每个可用氧化物创建子图
+            availableOxides.forEach((oxide, subplotIndex) => {
+                // 为每个样品在当前子图中添加数据点
+                globalData.forEach((row, sampleIndex) => {
+                    const sio2_val = parseFloat(row.SiO2);
+                    const oxide_val = parseFloat(row[oxide]);
+                    
+                    if (!isNaN(sio2_val) && !isNaN(oxide_val)) {
+                        traces.push({
+                            x: [sio2_val], 
+                            y: [oxide_val],
+                            mode: 'markers', 
+                            type: 'scatter',
+                            name: sampleIndex === 0 ? `样品 ${sampleIndex + 1}` : '',
+                            legendgroup: `sample_${sampleIndex}`,
+                            marker: { 
+                                size: 6, 
+                                color: colors[sampleIndex % colors.length],
+                                opacity: 0.7,
+                                line: { color: 'black', width: 0.5 }
+                            },
+                            showlegend: subplotIndex === 0,  // 只在第一个子图显示图例
+                            xaxis: `x${subplotIndex + 1}`,
+                            yaxis: `y${subplotIndex + 1}`
+                        });
+                    }
                 });
             });
 
+            // 创建子图布局 - 4行2列或根据可用氧化物数量调整
+            const numSubplots = availableOxides.length;
+            const cols = 2;
+            const rows = Math.ceil(numSubplots / cols);
+            
+            // 基础布局
             const layout = {
-                title: 'Harker Diagrams',
-                xaxis: { title: 'SiO2 (wt%)' },
-                yaxis: { title: '氧化物含量 (wt%)' },
+                title: `Harker Variation Diagrams (${availableOxides.length} oxides vs SiO2)`,
                 showlegend: true,
-                legend: {
-                    x: 1.02,
-                    y: 1,
-                    xanchor: 'left',
-                    yanchor: 'top'
-                },
-                margin: { r: 120 }  // 为图例留出空间
+                grid: { rows: rows, columns: cols, pattern: 'independent' },
+                height: 200 * rows + 100  // 动态高度
             };
+
+            // 为每个子图设置轴
+            availableOxides.forEach((oxide, i) => {
+                const row = Math.floor(i / cols);
+                const col = i % cols;
+                
+                // 计算子图位置
+                const xDomain = [col * (1.0/cols) + 0.05, (col + 1) * (1.0/cols) - 0.05];
+                const yDomain = [1 - (row + 1) * (1.0/rows) + 0.05, 1 - row * (1.0/rows) - 0.05];
+                
+                const axisIndex = i + 1;
+                const xAxisKey = axisIndex === 1 ? 'xaxis' : `xaxis${axisIndex}`;
+                const yAxisKey = axisIndex === 1 ? 'yaxis' : `yaxis${axisIndex}`;
+                
+                layout[xAxisKey] = {
+                    title: 'SiO₂ (wt%)',
+                    domain: xDomain,
+                    showgrid: true,
+                    zeroline: false
+                };
+                
+                layout[yAxisKey] = {
+                    title: `${oxide} (wt%)`,
+                    domain: yDomain,
+                    showgrid: true,
+                    zeroline: false
+                };
+            });
 
             Plotly.newPlot('plotDiv', traces, layout);
             document.getElementById('plotContainer').style.display = 'block';
-            showAlert(`Harker 图表生成成功！包含 ${availableOxides.length} 个氧化物`, 'success');
+            showAlert(`Harker 变异图生成成功！包含 ${availableOxides.length} 个子图`, 'success');
         }
 
         // REE 图表生成 - 严格按照 run.py 中 REE.py 的实现
